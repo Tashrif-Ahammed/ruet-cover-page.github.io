@@ -5,6 +5,8 @@ import {
   ReaderIcon,
 } from '@radix-ui/react-icons';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useState } from 'react';
+import { getMostRecentTeacher, type CourseRecord, type TeacherRecord } from '@/lib/packet-storage';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
@@ -21,8 +23,10 @@ import { Combobox } from './combobox';
 import { DateInput } from './DateInput';
 import { FormDescription } from './form-description';
 import { FormItem } from './form-item';
+import { CourseNoInput } from './CourseNoInput';
 import { ImportExport } from './import-export';
 import { SelectInput } from './select-input';
+import { StudentIDInput } from './StudentIDInput';
 import { SwitchInput } from './switch-input';
 import { TeacherName } from './teacher-name';
 import { TextInput } from './text-input';
@@ -39,6 +43,23 @@ export function Editor() {
   const teacherName = useAtomValue(editorStore.teacherName);
   const secondTeacherName = useAtomValue(editorStore.secondTeacherName);
   const manualSubmittedBy = useAtomValue(editorStore.manualSubmittedBy);
+  const setTeacherName = useSetAtom(editorStore.teacherName);
+  const setTeacherDesignation = useSetAtom(editorStore.teacherDesignation);
+  const setTeacherDepartment = useSetAtom(editorStore.teacherDepartment);
+
+  // Teachers saved for the currently selected course
+  const [courseTeachers, setCourseTeachers] = useState<TeacherRecord[]>([]);
+
+  const handleCourseSelect = (_courseNo: string, record: CourseRecord) => {
+    setCourseTeachers(record.teachers);
+    // Auto-fill most recent teacher
+    const recent = getMostRecentTeacher(record);
+    if (recent) {
+      setTeacherName(recent.name);
+      setTeacherDesignation(recent.designation);
+      setTeacherDepartment(recent.dept);
+    }
+  };
 
   useAtom(teacherEffect);
 
@@ -76,7 +97,13 @@ export function Editor() {
           <>
             <div className="grid gap-4 sm:grid-cols-2">
               <FormItem label="Student ID">
-                <TextInput atom={editorStore.studentID} />
+                <StudentIDInput
+                  idAtom={editorStore.studentID}
+                  nameAtom={editorStore.studentName}
+                  sectionAtom={editorStore.studentSection}
+                  deptAtom={editorStore.studentDepartment}
+                  groupAtom={editorStore.studentGroup}
+                />
               </FormItem>
               <FormItem label="Section">
                 <TextInput atom={editorStore.studentSection} />
@@ -111,7 +138,11 @@ export function Editor() {
         <h2>Subject</h2>
         <div className="grid gap-4 sm:grid-cols-[7rem_1fr]">
           <FormItem label={courseCode ? 'Course Code' : 'Course No.'}>
-            <TextInput atom={editorStore.courseNo} />
+            <CourseNoInput
+              courseNoAtom={editorStore.courseNo}
+              courseTitleAtom={editorStore.courseTitle}
+              onCourseSelect={handleCourseSelect}
+            />
           </FormItem>
           <FormItem label="Course Title">
             <TextInput atom={editorStore.courseTitle} />
@@ -142,6 +173,7 @@ export function Editor() {
             nameAtom={editorStore.teacherName}
             designationAtom={editorStore.teacherDesignation}
             departmentAtom={editorStore.teacherDepartment}
+            courseTeachers={courseTeachers}
           />
         </FormItem>
         {!!teacherName && (
