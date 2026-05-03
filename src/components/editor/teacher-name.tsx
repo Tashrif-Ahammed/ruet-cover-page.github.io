@@ -1,8 +1,14 @@
 /**
- * @link https://github.com/Balastrong/shadcn-autocomplete-demo/
+ * teacher-name.tsx  (updated)
+ *
+ * Changes:
+ * 1. Receives `courseTeachers` prop — teachers saved for the current course.
+ * 2. If courseTeachers is empty → falls back to RUET API list (manual mode).
+ * 3. If courseTeachers has entries → dropdown shows those teachers first.
+ * 4. Edit (✏️) button dismisses course-teacher suggestions, shows API list.
  */
 
-import { ArrowLeftIcon, Cross1Icon } from '@radix-ui/react-icons';
+import { ArrowLeftIcon, Cross1Icon, Pencil1Icon } from '@radix-ui/react-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Command as CommandPrimitive } from 'cmdk';
 import * as idbKeyVal from 'idb-keyval';
@@ -31,6 +37,7 @@ import {
 } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import type { TeacherRecord } from '@/lib/packet-storage';
 import {
   departmentLongMap,
   departmentShortMap,
@@ -40,16 +47,23 @@ import { Button } from '../ui/button';
 import { FormItemContext } from './form-item';
 import classes from './teacher-name.module.css';
 
+type StringAtom = WritableAtom<string, [string | typeof RESET], void>;
+
+interface Props {
+  nameAtom: StringAtom;
+  designationAtom: WritableAtom<string, [string], void>;
+  departmentAtom: WritableAtom<string, [string], void>;
+  courseTeachers?: TeacherRecord[];
+}
+
 export function TeacherName({
   nameAtom,
   designationAtom,
   departmentAtom,
-}: {
-  nameAtom: WritableAtom<string, [string | typeof RESET], void>;
-  designationAtom: WritableAtom<string, [string], void>;
-  departmentAtom: WritableAtom<string, [string], void>;
-}) {
+  courseTeachers = [],
+}: Props) {
   const [open, setOpen] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
   const [value, onValueChange] = useAtom(nameAtom);
   const reset = useResetAtom(nameAtom);
   const search = useDeferredValue(value);
@@ -58,7 +72,13 @@ export function TeacherName({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { id } = useContext(FormItemContext);
 
-  const { data: teachers, isLoading } = useQuery({
+  const hasCourseTeachers = courseTeachers.length > 0;
+
+  useEffect(() => {
+    setManualMode(false);
+  }, [courseTeachers]);
+
+  const { data: apiTeachers, isLoading } = useQuery({
     queryKey: ['teachers'],
     queryFn: async () => {
       try {
@@ -78,15 +98,10 @@ export function TeacherName({
           .filter((x) => x.post !== 'Head')
           .sort((a, b) => a.name.localeCompare(b.name))
           .map((x, i) => ({ ...x, id: `${x.name} ${x.dept} ${x.post}:${i}` }));
-
         await idbKeyVal.setMany(
-          [
-            ['updatedAt', new Date()],
-            ['teachers', teachers],
-          ],
+          [['updatedAt', new Date()], ['teachers', teachers]],
           teachersIDBStore,
         );
-
         return teachers;
       } catch {
         const teachers = await idbKeyVal.get('teachers', teachersIDBStore);
@@ -95,20 +110,47 @@ export function TeacherName({
     },
   });
 
-  const filteredTeachers = useMemo(() => {
-    return (
-      teachers &&
-      (search
-        ? matchSorter(teachers, search, {
-            keys: ['name', 'post', 'dept'],
-          }).slice(0, 5)
-        : teachers)
-    );
-  }, [search, teachers]);
+  const filteredCourseTeachers = useMemo(() => {
+    if (!hasCourseTeachers) return [];
+    if (!search) return courseTeachers;
+    return matchSorter(courseTeachers, search, {
+      keys: ['name', 'designation', 'dept'],
+    });
+  }, [courseTeachers, search, hasCourseTeachers]);
 
-  const onSelectItem = (id: string) => {
-    const i = +id.slice(id.lastIndexOf(':') + 1);
-    const teacher = teachers?.[i];
+  const filteredApiTeachers = useMemo(() => {
+    if (!apiTeachers) return [];
+    if (!search) return apiTeachers.slice(0, 5);
+    return matchSorter(apiTeachers, search, {
+      keys: ['name', 'post', 'dept'],
+    }).slice(0, 5);
+  }, [apiTeachers, search]);
+
+  const showCourseList = hasCourseTeachers && !manualMode;
+  const showApiList = manualMode || !hasCourseTeachers;
+
+  const [selected, setSelected] = useState('');
+  useEffect(() => {
+    const first =
+      showCourseList
+        ? filteredCourseTeachers[0]
+          ? `${filteredCourseTeachers[0].name}-${filteredCourseTeachers[0].designation}`
+          : ''
+        : filteredApiTeachers[0]?.id ?? '';
+    setSelected(first);
+  }, [filteredCourseTeachers, filteredApiTeachers, showCourseList]);
+
+  const onSelectCourseTeacher = (record: TeacherRecord) => {
+    onValueChange(record.name);
+    setDesignation(record.designation);
+    if (record.dept) setDepartment(record.dept);
+    setOpen(false);
+  };
+
+  const onSelectApiTeacher = (itemId: string) => {
+    if (!apiTeachers) return;
+    const i = +itemId.slice(itemId.lastIndexOf(':') + 1);
+    const teacher = apiTeachers[i];
     if (teacher) {
       onValueChange(teacher.name || '');
       setDesignation(teacher.post || '');
@@ -118,13 +160,6 @@ export function TeacherName({
     setOpen(false);
   };
 
-  const [selected, setSelected] = useState('');
-
-  useEffect(() => {
-    const selected = filteredTeachers?.[0]?.id;
-    selected && setSelected(selected);
-  }, [filteredTeachers]);
-
   useEffect(() => {
     inputRef.current?.setAttribute('id', id);
     inputRef.current
@@ -132,6 +167,10 @@ export function TeacherName({
       ?.querySelector('label')
       ?.setAttribute('for', id);
   });
+
+  const hasDropdownItems = showCourseList
+    ? filteredCourseTeachers.length > 0
+    : filteredApiTeachers.length > 0 || isLoading;
 
   return (
     <div
@@ -155,12 +194,13 @@ export function TeacherName({
         <ArrowLeftIcon className="h-[1.2rem] w-[1.2rem]" />
         <span className="sr-only">Back</span>
       </Button>
-      <Popover open={open} onOpenChange={setOpen}>
+
+      <Popover open={open && hasDropdownItems} onOpenChange={setOpen}>
         <Command
           shouldFilter={false}
           value={selected}
           onValueChange={setSelected}
-          className={cn('bg-transparent', classes.command)}
+          className={cn('bg-transparent flex-1', classes.command)}
         >
           <div className="relative">
             <PopoverAnchor asChild>
@@ -169,9 +209,14 @@ export function TeacherName({
                 value={value}
                 onValueChange={onValueChange}
                 onKeyDown={(e) => {
-                  setOpen(e.key !== 'Escape');
+                  if (e.key === 'Escape') {
+                    setOpen(false);
+                    setManualMode(true);
+                  } else {
+                    setOpen(e.key !== 'Escape');
+                  }
                 }}
-                onMouseDown={() => setOpen((open) => !!value || !open)}
+                onMouseDown={() => setOpen((o) => !!value || !o)}
                 onFocus={() => setOpen(true)}
                 className={classes.input}
               >
@@ -186,6 +231,7 @@ export function TeacherName({
                 aria-label="reset"
                 onClick={() => {
                   reset();
+                  setManualMode(false);
                   inputRef.current?.focus();
                 }}
               >
@@ -193,7 +239,9 @@ export function TeacherName({
               </Button>
             )}
           </div>
+
           {!open && <CommandList aria-hidden="true" className="hidden" />}
+
           <PopoverContent
             asChild
             onOpenAutoFocus={(e) => e.preventDefault()}
@@ -202,37 +250,74 @@ export function TeacherName({
             className="w-screen sm:w-[var(--radix-popper-anchor-width)] p-0"
           >
             <CommandList>
-              {isLoading && (
+              {isLoading && showApiList && (
                 <CommandPrimitive.Loading>
                   <div className="p-1">
                     <Skeleton className="h-6 w-full" />
                   </div>
                 </CommandPrimitive.Loading>
               )}
-              {filteredTeachers?.length && !isLoading ? (
+
+              {showCourseList && filteredCourseTeachers.length > 0 && (
+                <CommandGroup heading="Course teachers">
+                  {filteredCourseTeachers.map((t) => (
+                    <CommandItem
+                      key={`${t.name}-${t.designation}-${t.dept}`}
+                      value={`${t.name}-${t.designation}-${t.dept}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onSelect={() => onSelectCourseTeacher(t)}
+                      className="block"
+                    >
+                      <div>{t.name}</div>
+                      <div className="text-xs text-muted-foreground">{t.designation}</div>
+                      <div className="text-xs text-muted-foreground">{t.dept}</div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
+
+              {showApiList && filteredApiTeachers.length > 0 && !isLoading && (
                 <CommandGroup>
-                  {filteredTeachers.map((teacher) => (
+                  {filteredApiTeachers.map((teacher) => (
                     <CommandItem
                       key={teacher.id}
                       value={teacher.id}
                       onMouseDown={(e) => e.preventDefault()}
-                      onSelect={onSelectItem}
+                      onSelect={onSelectApiTeacher}
                       className="block"
                     >
                       <div>{teacher.name}</div>
                       <div className="text-xs">{teacher.post}</div>
                       <div className="text-xs">
-                        Dept. of{' '}
-                        {departmentShortMap[teacher.dept.toLowerCase()]}
+                        Dept. of {departmentShortMap[teacher.dept.toLowerCase()]}
                       </div>
                     </CommandItem>
                   ))}
                 </CommandGroup>
-              ) : null}
+              )}
             </CommandList>
           </PopoverContent>
         </Command>
       </Popover>
+
+      {hasCourseTeachers && (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="manual edit"
+          title={manualMode ? 'Back to suggestions' : 'Type manually'}
+          onClick={() => {
+            setManualMode((m) => !m);
+            setOpen(false);
+            inputRef.current?.focus();
+          }}
+          className="shrink-0"
+        >
+          <Pencil1Icon
+            className={cn('h-4 w-4', manualMode ? 'opacity-100' : 'opacity-60')}
+          />
+        </Button>
+      )}
     </div>
   );
 }
