@@ -96,6 +96,7 @@ async function savePackets() {
 
   const courseNo = defaultStore.get(editor.courseNo);
   const courseTitle = defaultStore.get(editor.courseTitle);
+  const courseType = defaultStore.get(editor.type);
   const teacherName = defaultStore.get(editor.teacherName);
   const teacherDesignation = defaultStore.get(editor.teacherDesignation);
   const teacherDept = defaultStore.get(editor.teacherDepartment);
@@ -123,6 +124,7 @@ async function savePackets() {
             lastUsed: Date.now(),
           }
         : null,
+      courseType,
     );
   }
 }

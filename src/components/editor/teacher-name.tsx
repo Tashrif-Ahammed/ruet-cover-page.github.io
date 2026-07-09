@@ -9,9 +9,7 @@
  */
 
 import { ArrowLeftIcon, Cross1Icon, Pencil1Icon } from '@radix-ui/react-icons';
-import { useQuery } from '@tanstack/react-query';
 import { Command as CommandPrimitive } from 'cmdk';
-import * as idbKeyVal from 'idb-keyval';
 import { useAtom, useSetAtom, type WritableAtom } from 'jotai';
 import { type RESET, useResetAtom } from 'jotai/utils';
 import { matchSorter } from 'match-sorter';
@@ -36,13 +34,10 @@ import {
   PopoverContent,
 } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import type { TeacherRecord } from '@/lib/packet-storage';
-import {
-  departmentLongMap,
-  departmentShortMap,
-  teachersIDBStore,
-} from '@/store/editor';
+import { useApiTeachers } from '@/lib/use-api-teachers';
+import { cn } from '@/lib/utils';
+import { departmentLongMap, departmentShortMap } from '@/store/editor';
 import { Button } from '../ui/button';
 import { FormItemContext } from './form-item';
 import classes from './teacher-name.module.css';
@@ -78,37 +73,7 @@ export function TeacherName({
     setManualMode(false);
   }, [courseTeachers]);
 
-  const { data: apiTeachers, isLoading } = useQuery({
-    queryKey: ['teachers'],
-    queryFn: async () => {
-      try {
-        const updatedAt = (await idbKeyVal.get(
-          'updatedAt',
-          teachersIDBStore,
-        )) as Date | null;
-        if (Date.now() - (updatedAt?.getTime() || 0) < 36e5) {
-          const teachers = await idbKeyVal.get('teachers', teachersIDBStore);
-          if (Array.isArray(teachers)) return teachers;
-        }
-        const res = await fetch(`${process.env.PUBLIC_API}/teachers`);
-        const data = await res.json();
-        const teachers = (
-          data.list as { name: string; post: string; dept: string }[]
-        )
-          .filter((x) => x.post !== 'Head')
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((x, i) => ({ ...x, id: `${x.name} ${x.dept} ${x.post}:${i}` }));
-        await idbKeyVal.setMany(
-          [['updatedAt', new Date()], ['teachers', teachers]],
-          teachersIDBStore,
-        );
-        return teachers;
-      } catch {
-        const teachers = await idbKeyVal.get('teachers', teachersIDBStore);
-        return Array.isArray(teachers) ? teachers : [];
-      }
-    },
-  });
+  const { data: apiTeachers, isLoading } = useApiTeachers();
 
   const filteredCourseTeachers = useMemo(() => {
     if (!hasCourseTeachers) return [];
@@ -131,12 +96,11 @@ export function TeacherName({
 
   const [selected, setSelected] = useState('');
   useEffect(() => {
-    const first =
-      showCourseList
-        ? filteredCourseTeachers[0]
-          ? `${filteredCourseTeachers[0].name}-${filteredCourseTeachers[0].designation}`
-          : ''
-        : filteredApiTeachers[0]?.id ?? '';
+    const first = showCourseList
+      ? filteredCourseTeachers[0]
+        ? `${filteredCourseTeachers[0].name}-${filteredCourseTeachers[0].designation}`
+        : ''
+      : (filteredApiTeachers[0]?.id ?? '');
     setSelected(first);
   }, [filteredCourseTeachers, filteredApiTeachers, showCourseList]);
 
@@ -269,8 +233,12 @@ export function TeacherName({
                       className="block"
                     >
                       <div>{t.name}</div>
-                      <div className="text-xs text-muted-foreground">{t.designation}</div>
-                      <div className="text-xs text-muted-foreground">{t.dept}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t.designation}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t.dept}
+                      </div>
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -289,7 +257,8 @@ export function TeacherName({
                       <div>{teacher.name}</div>
                       <div className="text-xs">{teacher.post}</div>
                       <div className="text-xs">
-                        Dept. of {departmentShortMap[teacher.dept.toLowerCase()]}
+                        Dept. of{' '}
+                        {departmentShortMap[teacher.dept.toLowerCase()]}
                       </div>
                     </CommandItem>
                   ))}

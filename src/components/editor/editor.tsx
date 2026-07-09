@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   IdCardIcon,
   MixerVerticalIcon,
   PersonIcon,
@@ -6,9 +7,14 @@ import {
 } from '@radix-ui/react-icons';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useState } from 'react';
-import { getMostRecentTeacher, type CourseRecord, type TeacherRecord } from '@/lib/packet-storage';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  type CourseRecord,
+  getMostRecentTeacher,
+  type LabReportPreset,
+  type TeacherRecord,
+} from '@/lib/packet-storage';
 import { cn } from '@/lib/utils';
 import editorStore, {
   departments,
@@ -19,14 +25,17 @@ import editorStore, {
 import { teacherEffect } from '@/store/effects/editor';
 import { previewModeAtom } from '@/store/preview-mode';
 import { Switch } from '../ui/switch';
+import { CourseNoInput } from './CourseNoInput';
+import { CourseTitleInput } from './CourseTitleInput';
 import { Combobox } from './combobox';
 import { DateInput } from './DateInput';
 import { FormDescription } from './form-description';
 import { FormItem } from './form-item';
-import { CourseNoInput } from './CourseNoInput';
 import { ImportExport } from './import-export';
-import { SelectInput } from './select-input';
+import { LabReportPresetPicker } from './LabReportPresetPicker';
+import { PersonalDataTab } from './personal-data';
 import { StudentIDInput } from './StudentIDInput';
+import { SelectInput } from './select-input';
 import { SwitchInput } from './switch-input';
 import { TeacherName } from './teacher-name';
 import { TextInput } from './text-input';
@@ -46,12 +55,20 @@ export function Editor() {
   const setTeacherName = useSetAtom(editorStore.teacherName);
   const setTeacherDesignation = useSetAtom(editorStore.teacherDesignation);
   const setTeacherDepartment = useSetAtom(editorStore.teacherDepartment);
+  const setType = useSetAtom(editorStore.type);
+  const setCoverNo = useSetAtom(editorStore.coverNo);
+  const setCoverTitle = useSetAtom(editorStore.coverTitle);
 
-  // Teachers saved for the currently selected course
+  // Teachers + lab report presets saved for the currently selected course
   const [courseTeachers, setCourseTeachers] = useState<TeacherRecord[]>([]);
+  const [courseLabReports, setCourseLabReports] = useState<LabReportPreset[]>(
+    [],
+  );
 
   const handleCourseSelect = (_courseNo: string, record: CourseRecord) => {
     setCourseTeachers(record.teachers);
+    setCourseLabReports(record.labReports ?? []);
+    if (record.type) setType(record.type as never);
     // Auto-fill most recent teacher
     const recent = getMostRecentTeacher(record);
     if (recent) {
@@ -59,6 +76,11 @@ export function Editor() {
       setTeacherDesignation(recent.designation);
       setTeacherDepartment(recent.dept);
     }
+  };
+
+  const handleLabReportPick = (preset: LabReportPreset) => {
+    setCoverNo(preset.number);
+    setCoverTitle(preset.title);
   };
 
   useAtom(teacherEffect);
@@ -75,6 +97,7 @@ export function Editor() {
             ['student', PersonIcon],
             ['subject', ReaderIcon],
             ['teacher', IdCardIcon],
+            ['personal', ArchiveIcon],
             ['settings', MixerVerticalIcon],
           ] as const
         ).map(([x, Icon]) => (
@@ -145,11 +168,28 @@ export function Editor() {
             />
           </FormItem>
           <FormItem label="Course Title">
-            <TextInput atom={editorStore.courseTitle} />
+            <CourseTitleInput
+              courseNoAtom={editorStore.courseNo}
+              courseTitleAtom={editorStore.courseTitle}
+              onCourseSelect={handleCourseSelect}
+            />
           </FormItem>
         </div>
-        <TypeAndCoverNo />
-        <FormItem label="Title">
+        <TypeAndCoverNo
+          presets={courseLabReports}
+          onPickPreset={handleLabReportPick}
+        />
+        <FormItem
+          label="Title"
+          actions={
+            courseLabReports.length > 0 ? (
+              <LabReportPresetPicker
+                presets={courseLabReports}
+                onSelect={handleLabReportPick}
+              />
+            ) : undefined
+          }
+        >
           <TextAreaInput atom={editorStore.coverTitle} rows={3} />
           <FormDescription>leave empty if not applicable</FormDescription>
         </FormItem>
@@ -238,6 +278,10 @@ export function Editor() {
           Let's go
         </Button>
       </TabsContent>
+      <TabsContent value="personal" className={tabContentClass}>
+        <h2>Personal Data</h2>
+        <PersonalDataTab />
+      </TabsContent>
       <TabsContent value="settings" className={tabContentClass}>
         <h2>Settings</h2>
         <SwitchInput
@@ -299,7 +343,13 @@ function DateOfExperiment() {
   );
 }
 
-function TypeAndCoverNo() {
+function TypeAndCoverNo({
+  presets = [],
+  onPickPreset,
+}: {
+  presets?: LabReportPreset[];
+  onPickPreset?: (preset: LabReportPreset) => void;
+}) {
   const type = useAtomValue(editorStore.type);
   const [coverNo, setCoverNo] = useAtom(editorStore.coverNo);
 
@@ -316,10 +366,18 @@ function TypeAndCoverNo() {
         <FormItem
           label={`${type} No.`}
           actions={
-            <Switch
-              checked={coverNo !== ''}
-              onCheckedChange={(x) => setCoverNo(x ? '1' : '')}
-            />
+            <div className="flex items-center gap-1">
+              {presets.length > 0 && onPickPreset && (
+                <LabReportPresetPicker
+                  presets={presets}
+                  onSelect={onPickPreset}
+                />
+              )}
+              <Switch
+                checked={coverNo !== ''}
+                onCheckedChange={(x) => setCoverNo(x ? '1' : '')}
+              />
+            </div>
           }
         >
           <TextInput
